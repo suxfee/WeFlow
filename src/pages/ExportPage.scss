@@ -22,7 +22,7 @@
 
 .export-top-bar {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   gap: 12px;
 }
 
@@ -267,22 +267,25 @@
   border-radius: 12px;
   padding: 12px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
   gap: 10px;
-  align-items: stretch;
+  align-items: center;
 
   .control-label {
     font-size: 11px;
     color: var(--text-secondary);
     font-weight: 600;
     letter-spacing: 0.2px;
+    width: 78px;
+    flex: 0 0 78px;
+    line-height: 1.2;
   }
 
   .path-control {
     min-width: 0;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
   }
 
   .path-inline-row {
@@ -347,8 +350,8 @@
   .write-layout-control {
     position: relative;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
     width: 100%;
     max-width: 100%;
@@ -531,7 +534,6 @@
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
-  align-self: stretch;
   transition: border-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
 
   &:hover {
@@ -3280,6 +3282,7 @@
   .global-export-controls {
     padding: 10px;
     gap: 8px;
+    grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr);
   }
 
   .format-grid {
@@ -3302,11 +3305,23 @@
   }
 
   .global-export-controls {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .global-export-controls .path-control,
+  .global-export-controls .write-layout-control {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .global-export-controls .control-label {
+    width: auto;
+    flex-basis: auto;
   }
 
   .task-center-card {
-    align-self: auto;
     width: 100%;
     justify-content: space-between;
   }

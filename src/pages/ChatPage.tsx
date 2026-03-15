@@ -2646,27 +2646,34 @@ function ChatPage(props: ChatPageProps) {
   }, [])
 
   // 全局消息搜索
+  const globalMsgSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleGlobalMsgSearch = useCallback(async (keyword: string) => {
     setGlobalMsgQuery(keyword)
+    if (globalMsgSearchTimerRef.current) clearTimeout(globalMsgSearchTimerRef.current)
     if (!keyword.trim()) {
       setGlobalMsgResults([])
+      setShowGlobalMsgSearch(false)
       return
     }
-    setGlobalMsgSearching(true)
-    try {
-      const res = await window.electronAPI.chat.searchMessages(keyword.trim(), undefined, 50, 0)
-      setGlobalMsgResults(res?.messages || [])
-    } catch {
-      setGlobalMsgResults([])
-    } finally {
-      setGlobalMsgSearching(false)
-    }
+    setShowGlobalMsgSearch(true)
+    globalMsgSearchTimerRef.current = setTimeout(async () => {
+      setGlobalMsgSearching(true)
+      try {
+        const res = await window.electronAPI.chat.searchMessages(keyword.trim(), undefined, 50, 0)
+        setGlobalMsgResults(res?.messages || [])
+      } catch {
+        setGlobalMsgResults([])
+      } finally {
+        setGlobalMsgSearching(false)
+      }
+    }, 400)
   }, [])
 
   const handleCloseGlobalMsgSearch = useCallback(() => {
     setShowGlobalMsgSearch(false)
     setGlobalMsgQuery('')
     setGlobalMsgResults([])
+    if (globalMsgSearchTimerRef.current) clearTimeout(globalMsgSearchTimerRef.current)
   }, [])
 
   // 滚动加载更多 + 显示/隐藏回到底部按钮（优化：节流，避免频繁执行）
@@ -3956,26 +3963,20 @@ function ChatPage(props: ChatPageProps) {
                 <input
                   ref={searchInputRef}
                   type="text"
-                  placeholder={showGlobalMsgSearch ? '搜索消息内容...' : '搜索'}
-                  value={showGlobalMsgSearch ? globalMsgQuery : searchKeyword}
-                  onChange={(e) => showGlobalMsgSearch ? handleGlobalMsgSearch(e.target.value) : handleSearch(e.target.value)}
+                  placeholder="搜索"
+                  value={searchKeyword}
+                  onChange={(e) => {
+                    handleSearch(e.target.value)
+                    handleGlobalMsgSearch(e.target.value)
+                  }}
                 />
-                {(showGlobalMsgSearch ? globalMsgQuery : searchKeyword) && (
-                  <button className="close-search" onClick={showGlobalMsgSearch ? handleCloseGlobalMsgSearch : handleCloseSearch}>
+                {searchKeyword && (
+                  <button className="close-search" onClick={() => { handleCloseSearch(); handleCloseGlobalMsgSearch() }}>
                     <X size={12} />
                   </button>
                 )}
+                {globalMsgSearching && <Loader2 size={12} className="spin" style={{ flexShrink: 0 }} />}
               </div>
-              <button
-                className={`icon-btn msg-search-toggle-btn ${showGlobalMsgSearch ? 'active' : ''}`}
-                onClick={() => {
-                  if (showGlobalMsgSearch) handleCloseGlobalMsgSearch()
-                  else { setShowGlobalMsgSearch(true); setTimeout(() => searchInputRef.current?.focus(), 50) }
-                }}
-                title={showGlobalMsgSearch ? '退出消息搜索' : '搜索消息内容'}
-              >
-                <MessageSquare size={15} />
-              </button>
               <button className="icon-btn refresh-btn" onClick={handleRefresh} disabled={isLoadingSessions || isRefreshingSessions}>
                 <RefreshCw size={16} className={(isLoadingSessions || isRefreshingSessions) ? 'spin' : ''} />
               </button>
@@ -3989,22 +3990,27 @@ function ChatPage(props: ChatPageProps) {
                 {!globalMsgSearching && globalMsgQuery && globalMsgResults.length === 0 && (
                   <div className="global-msg-empty">没有找到相关消息</div>
                 )}
-                {globalMsgResults.map((msg, i) => (
-                  <div key={i} className="global-msg-result-item" onClick={() => {
-                    const sid = msg._session_id || msg.username
-                    if (sid) {
-                      const target = sessions.find(s => s.username === sid)
-                      if (target) {
-                        handleSelectSession(target)
+                {globalMsgResults.map((msg, i) => {
+                  const sid = msg._session_id || msg.username || ''
+                  const sessionObj = sessions.find(s => s.username === sid)
+                  const sessionName = sessionObj?.displayName || sid || '未知会话'
+                  const content = (msg.content || msg.strContent || msg.message_content || '').slice(0, 60)
+                  const ts = msg.createTime || msg.create_time
+                  const timeStr = ts ? new Date(ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+                  return (
+                    <div key={i} className="global-msg-result-item" onClick={() => {
+                      if (sessionObj) {
+                        handleSelectSession(sessionObj)
                         handleCloseGlobalMsgSearch()
+                        setSearchKeyword('')
                       }
-                    }
-                  }}>
-                    <div className="global-msg-result-session">{msg._session_id || msg.username || '未知会话'}</div>
-                    <div className="global-msg-result-content">{(msg.content || msg.strContent || msg.message_content || '').slice(0, 60)}</div>
-                    <div className="global-msg-result-time">{(msg.createTime || msg.create_time) ? new Date((msg.createTime || msg.create_time) * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</div>
-                  </div>
-                ))}
+                    }}>
+                      <div className="global-msg-result-session">{sessionName}</div>
+                      <div className="global-msg-result-content">{content}</div>
+                      <div className="global-msg-result-time">{timeStr}</div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

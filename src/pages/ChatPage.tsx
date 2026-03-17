@@ -441,6 +441,7 @@ interface LoadMessagesOptions {
   deferGroupSenderWarmup?: boolean
   forceInitialLimit?: number
   switchRequestSeq?: number
+  inSessionJumpRequestSeq?: number
 }
 
 // 全局头像加载队列管理器已移至 src/utils/AvatarLoadQueue.ts
@@ -789,6 +790,8 @@ function ChatPage(props: ChatPageProps) {
   const [inSessionEnriching, setInSessionEnriching] = useState(false)
   const [inSessionSearchError, setInSessionSearchError] = useState<string | null>(null)
   const inSessionSearchRef = useRef<HTMLInputElement>(null)
+  const inSessionResultJumpTimerRef = useRef<number | null>(null)
+  const inSessionResultJumpRequestSeqRef = useRef(0)
   // 全局消息搜索
   const [showGlobalMsgSearch, setShowGlobalMsgSearch] = useState(false)
   const [globalMsgQuery, setGlobalMsgQuery] = useState('')
@@ -2595,6 +2598,15 @@ function ChatPage(props: ChatPageProps) {
         nextOffset?: number;
         error?: string
       }
+      const isStaleSwitchRequest = Boolean(
+        options.switchRequestSeq && options.switchRequestSeq !== sessionSwitchRequestSeqRef.current
+      )
+      const isStaleInSessionJumpRequest = Boolean(
+        options.inSessionJumpRequestSeq && options.inSessionJumpRequestSeq !== inSessionResultJumpRequestSeqRef.current
+      )
+      if (isStaleSwitchRequest || isStaleInSessionJumpRequest) {
+        return
+      }
       if (options.switchRequestSeq && options.switchRequestSeq !== sessionSwitchRequestSeqRef.current) {
         return
       }
@@ -2729,6 +2741,14 @@ function ChatPage(props: ChatPageProps) {
     }
     setInSessionSearching(false)
     setInSessionEnriching(false)
+  }, [])
+
+  const cancelInSessionSearchJump = useCallback(() => {
+    inSessionResultJumpRequestSeqRef.current += 1
+    if (inSessionResultJumpTimerRef.current) {
+      window.clearTimeout(inSessionResultJumpTimerRef.current)
+      inSessionResultJumpTimerRef.current = null
+    }
   }, [])
 
   const resolveSearchSessionContext = useCallback((sessionId?: string) => {
@@ -3201,6 +3221,7 @@ function ChatPage(props: ChatPageProps) {
     const pendingSearch = pendingInSessionSearchRef.current
     const shouldPreservePendingSearch = pendingSearch?.sessionId === normalizedSessionId
     cancelInSessionSearchTasks()
+    cancelInSessionSearchJump()
 
     // 清空会话内搜索状态（除非是从全局搜索跳转过来）
     if (!shouldPreservePendingSearch) {
@@ -3262,6 +3283,7 @@ function ChatPage(props: ChatPageProps) {
     refreshSessionIncrementally,
     hydrateSessionPreview,
     loadMessages,
+    cancelInSessionSearchJump,
     cancelInSessionSearchTasks,
     applyPendingInSessionSearch
   ])
@@ -3342,6 +3364,7 @@ function ChatPage(props: ChatPageProps) {
     setShowInSessionSearch(v => {
       if (v) {
         cancelInSessionSearchTasks()
+        cancelInSessionSearchJump()
         setInSessionQuery('')
         setInSessionResults([])
         setInSessionSearchError(null)
@@ -3350,7 +3373,7 @@ function ChatPage(props: ChatPageProps) {
       }
       return !v
     })
-  }, [cancelInSessionSearchTasks])
+  }, [cancelInSessionSearchJump, cancelInSessionSearchTasks])
 
   // 全局消息搜索
   const globalMsgSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3523,6 +3546,36 @@ function ChatPage(props: ChatPageProps) {
       setHighlightedMessageKeys((prev) => prev.filter((k) => !keys.includes(k)))
     }, 2500)
   }, [])
+
+  const handleInSessionResultJump = useCallback((msg: Message) => {
+    const targetTime = Number(msg.createTime || 0)
+    const targetSessionId = String(currentSessionRef.current || currentSessionId || '').trim()
+    if (!targetTime || !targetSessionId) return
+
+    if (inSessionResultJumpTimerRef.current) {
+      window.clearTimeout(inSessionResultJumpTimerRef.current)
+      inSessionResultJumpTimerRef.current = null
+    }
+
+    const requestSeq = inSessionResultJumpRequestSeqRef.current + 1
+    inSessionResultJumpRequestSeqRef.current = requestSeq
+    const anchorEndTime = targetTime + 1
+    const targetMessageKey = getMessageKey(msg)
+
+    inSessionResultJumpTimerRef.current = window.setTimeout(() => {
+      inSessionResultJumpTimerRef.current = null
+      if (requestSeq !== inSessionResultJumpRequestSeqRef.current) return
+      if (currentSessionRef.current !== targetSessionId) return
+
+      setCurrentOffset(0)
+      setJumpStartTime(0)
+      setJumpEndTime(anchorEndTime)
+      flashNewMessages([targetMessageKey])
+      void loadMessages(targetSessionId, 0, 0, anchorEndTime, false, {
+        inSessionJumpRequestSeq: requestSeq
+      })
+    }, 220)
+  }, [currentSessionId, flashNewMessages, getMessageKey, loadMessages])
 
   // 滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -3813,6 +3866,15 @@ function ChatPage(props: ChatPageProps) {
     persistSessionPreviewCache,
     saveSessionWindowCache
   ])
+
+  useEffect(() => {
+    return () => {
+      inSessionResultJumpRequestSeqRef.current += 1
+      if (inSessionResultJumpTimerRef.current) {
+        window.clearTimeout(inSessionResultJumpTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!Array.isArray(sessions) || sessions.length === 0) return
@@ -5238,17 +5300,10 @@ function ChatPage(props: ChatPageProps) {
                       const displayTime = msg.createTime
                         ? new Date(msg.createTime * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
                         : ''
+                      const resultKey = getMessageKey(msg)
 
                       return (
-                        <div key={i} className="result-item" onClick={() => {
-                          const ts = msg.createTime
-                          if (ts && currentSessionId) {
-                            setCurrentOffset(0)
-                            setJumpStartTime(0)
-                            setJumpEndTime(0)
-                            void loadMessages(currentSessionId, 0, ts - 1, ts + 1, false)
-                          }
-                        }}>
+                        <div key={resultKey} className="result-item" onClick={() => handleInSessionResultJump(msg)}>
                           <div className="result-header">
                             <Avatar src={senderAvatar} name={senderName} size={32} loading={senderAvatarLoading} />
                           </div>
